@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QMainwindow, QApplication, QMessageBox
+from PyQt5.QtWidgets import QMainWindow, QApplication, QMessageBox
 from PyQt5 import QtCore
 import sys
 import numpy as np
@@ -20,18 +20,19 @@ port = 21210
 ipAddress = (ip, port)
 threadRunningFlag = False
 updateFigureFlag = False
-nodeIdA = 0, nodeIdB = 0, xCoordinate = 0, yCoordinate = 0
+nodeIdA, nodeIdB, xCoordinate, yCoordinate = 0, 0, 0, 0
+benchMarkDistance = 0
 windowLength = 200
 queue = []
 
-class AppWindow(QMainwindow):
+class AppWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
         self.setCallback()
         self.currentRadarConfig
-        self.benchMarkDistance = 0 #distance between marks
+        # self.benchMarkDistance = 0 #distance between marks
         self.figureBScan = plt.figure()
         self.canvasBScan = FigureCanvas(self.figureBScan)
         self.ui.BScanImage.addWidget(self.canvasBScan)
@@ -51,13 +52,15 @@ class AppWindow(QMainwindow):
         timer.start(50)
 
         self.producer = ProducerThread().start()
-        
 
 
     def setCallback(self):
         self.ui.btnRadarConfigRead.clicked.connect(self.readConfig)
         self.ui.btnRadarConfigSet.clicked.connect(self.writeConfig)
-        
+        self.ui.btnStart.clicked.connect(self.runAndStop)
+        self.ui.btnSave.clicked.connect(self.saveData)
+        self.ui.btnClear.clicked.connect(self.clearWindow)
+        self.ui.btnNodeIdSet.clicked.connect(self.setRangeNode)
 
         
     def readConfig(self):
@@ -69,14 +72,40 @@ class AppWindow(QMainwindow):
         configMessage, addr = s.recvfrom(44)
         self.currentRadarConfig = config.RadarConfig(configMessage)
 
-      
-
+        self.ui.editIntegratinoIdex.setText(str(self.currentRadarConfig.baseIntegrationIndex))
+        self.ui.editTransmitGain.setText(str(self.currentRadarConfig.transmitGain))
+        self.ui.editDistanceEnd.setText(str(config.ps2m(self.currentRadarConfig.scanEnd)))
+        self.ui.editDistanceStart.setText(str(config.ps2m(self.currentRadarConfig.scanStart)))
         #set ui
+
 
     def writeConfig(self):
         
+        T1, T2 = config.m2ps(float(self.ui.editDistanceStart.text()), float(self.ui.editDistanceEnd.text()))
+        self.currentRadarConfig.scanStart = T1
+        self.currentRadarConfig.scanEnd = T2
+        self.currentRadarConfig.transmitGain = int(self.ui.editTransmitGain.text())
+        self.currentRadarConfig.baseIntegrationIndex = int(self.ui.editIntegratinoIdex.text())
+
+        s.socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.sendto(self.currentRadarConfig.configToByte(), ipAddress)
+        msgWriteConfirm, add = s.recvfrom(20)
+        msgType, msgId, msgStatus = unpack('>HHI', msgWriteConfirm)
+        if msgType == 0x1101 and msgStatus == 0:
+            self.showMessage('write success !')
+        else:
+            self.showMessage('faild !')
         pass
         #set node id
+
+    def setRangeNode(self):
+        nodeIdA = int(self.ui.editNodeIDInputA.text())
+        nodeIdB = int(self.ui.editNodeIDInputB.text())
+        benchMarkDistance = int(self.ui.editDistance.text())
+
+        self.ui.labelDistance.setText(str(benchMarkDistance))
+        self.ui.labelNodeA.setText(str(nodeIdA))
+        self.ui.labelNodeB.setText(str(nodeIdB))
 
     
     def updateCanvas(self):
@@ -105,7 +134,6 @@ class AppWindow(QMainwindow):
             y = [0, 0, yCoordinate]
             self.axCoordinate.scatter(x, y)
             self.canvesCoordinate.draw()
-
             
 
     def clearWindow(self):
@@ -118,8 +146,8 @@ class AppWindow(QMainwindow):
             .replace('-', '_').replace(':', '_').replace('.', '_')
         np.savetxt(fileName, self.dataOriginal.getAllArrays())
         self.showMessage(fileName + ' is saved !')
-        # save data array
 
+        
     def showMessage(self, text):
         msg = QMessageBox()
         msg.setText(text)
@@ -216,12 +244,12 @@ class ProducerThread(Thread):
                     s.sendto(radarInfoRequest)
                     while True:
                         scanInfo, add = s.recvfrom(2000)
-                        if scanInfo[0:2] = b'\xf2\x01':
+                        if scanInfo[0:2] == b'\xf2\x01':
                             thisLen, totalLen, thisIndex, totalIndex = unpack('>HIHH', scanInfo[42: 52])
                             print(thisLen, totalLen, thisIndex, totalIndex)
                             newSignal = np.frombuffer(scanInfo[52:thisLen * 4 + 52])
-                            xCoordinate = (rangeA**2 + self.benchMarkDistance**2 - rangeB**2) / (2 * self.benchMarkDistance)
-                            yCoordinate = math.sqrt(rangeA**2 - self.benchMarkDistance**2)
+                            xCoordinate = (rangeA**2 + benchMarkDistance**2 - rangeB**2) / (2 * benchMarkDistance)
+                            yCoordinate = math.sqrt(rangeA**2 - benchMarkDistance**2)
                             oneFrame = np.append(xCoordinate, yCoordinate)
                             oneFrame = np.append(oneFrame, newSignal)
 
